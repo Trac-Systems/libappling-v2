@@ -105,7 +105,28 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
     .name = name,
   };
 
-  err = launch(&info);
+  err = -1;
+
+#if defined(APPLING_OS_WIN32)
+  appling_launch_cb launch_v0;
+  int sym_err = uv_dlsym(&library, "appling_launch_v0", (void **) &launch_v0);
+  if (sym_err == 0 && launch_v0 != NULL) {
+    appling_launch_info_t info_v0 = info;
+    info_v0.version = 0;
+    info_v0.name = NULL;
+    appling__bootstrap_log("launch-mode", "v0");
+    err = launch_v0(&info_v0);
+  } else {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "sym err=%d", sym_err);
+    appling__bootstrap_log("launch-v0-missing", buf);
+  }
+#endif
+
+  if (err < 0) {
+    appling__bootstrap_log("launch-mode", "default");
+    err = launch(&info);
+  }
 
   uv_dlclose(&library);
 
