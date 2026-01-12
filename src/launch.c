@@ -41,6 +41,36 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
     path_behavior_system
   );
 
+  {
+    appling_path_t runtime;
+    size_t runtime_len = sizeof(appling_path_t);
+    path_join(
+      (const char *[]) {
+        platform->path,
+        "bin",
+#if defined(APPLING_OS_WIN32)
+        "pear-runtime.exe",
+#else
+        "pear-runtime",
+#endif
+        NULL
+      },
+      runtime,
+      &runtime_len,
+      path_behavior_system
+    );
+    uv_fs_t stat_req;
+    int rc = uv_fs_stat(uv_default_loop(), &stat_req, runtime, NULL);
+    if (rc < 0) {
+      char buf[256];
+      snprintf(buf, sizeof(buf), "missing(%d) %s", rc, runtime);
+      appling__bootstrap_log("runtime-missing", buf);
+    } else {
+      appling__bootstrap_log("runtime-ok", runtime);
+    }
+    uv_fs_req_cleanup(&stat_req);
+  }
+
   appling__bootstrap_log("launch-dll", path);
 
   uv_lib_t library;
