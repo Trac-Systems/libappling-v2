@@ -280,11 +280,19 @@ appling_ready_v0(const appling_ready_info_t *info) {
 
   WCHAR *application_name;
   err = appling__utf8_to_utf16(file, &application_name);
-  if (err < 0) return err;
+  if (err < 0) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "utf16 err=%d", err);
+    appling__bootstrap_log("launch-utf16", buf);
+    return err;
+  }
 
   WCHAR *command_line;
   err = appling__argv_to_command_line((const char *const *) argv, &command_line);
   if (err < 0) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "cmdline err=%d", err);
+    appling__bootstrap_log("launch-cmdline", buf);
     free(application_name);
 
     return err;
