@@ -72,6 +72,11 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
   }
 
   appling__bootstrap_log("launch-dll", path);
+  {
+    char buf[512];
+    snprintf(buf, sizeof(buf), "platform=%s", platform->path);
+    appling__bootstrap_log("launch-platform", buf);
+  }
 
   uv_lib_t library;
   err = uv_dlopen(path, &library);
@@ -104,6 +109,26 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
     .link = link,
     .name = name,
   };
+
+  {
+    char buf[1024];
+    snprintf(buf, sizeof(buf), "app=%s", app ? app->path : "(null)");
+    appling__bootstrap_log("launch-app", buf);
+  }
+  {
+    char buf[1024];
+    if (link) {
+      snprintf(buf, sizeof(buf), "link=%s/%s", link->id, link->data);
+    } else {
+      snprintf(buf, sizeof(buf), "link=(null)");
+    }
+    appling__bootstrap_log("launch-link", buf);
+  }
+  {
+    char buf[512];
+    snprintf(buf, sizeof(buf), "name=%s", name ? name : "(null)");
+    appling__bootstrap_log("launch-name", buf);
+  }
 
   err = -1;
 
