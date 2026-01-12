@@ -223,7 +223,7 @@ appling__argv_to_command_line(const char *const *args, WCHAR **result) {
 }
 
 static int
-appling__launch_direct(const appling_platform_t *platform, const appling_app_t *app, const appling_link_t *link) {
+appling__launch_direct(const appling_platform_t *platform, const appling_app_t *app, const appling_link_t *link, const char *name) {
   int err;
 
   if (platform == NULL || app == NULL || link == NULL) {
@@ -243,6 +243,33 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
   appling_path_t appling;
   strncpy(appling, app->path, sizeof(appling) - 1);
   appling[sizeof(appling) - 1] = '\0';
+
+  {
+    uv_fs_t stat_req;
+    int rc = uv_fs_stat(uv_default_loop(), &stat_req, appling, NULL);
+    if (rc < 0) {
+      char buf[256];
+      snprintf(buf, sizeof(buf), "missing(%d) %s", rc, appling);
+      appling__bootstrap_log("launch-direct-app-missing", buf);
+      const char *local = getenv("LOCALAPPDATA");
+      if (local && local[0] && name && name[0]) {
+        appling_path_t fallback;
+        snprintf(
+          fallback,
+          sizeof(fallback),
+          "%s\\Microsoft\\WindowsApps\\%s.exe",
+          local,
+          name
+        );
+        strncpy(appling, fallback, sizeof(appling) - 1);
+        appling[sizeof(appling) - 1] = '\0';
+        appling__bootstrap_log("launch-direct-app-fallback", appling);
+      }
+    } else {
+      appling__bootstrap_log("launch-direct-app", appling);
+    }
+    uv_fs_req_cleanup(&stat_req);
+  }
 
   char link_buf[7 /* pear:// */ + APPLING_ID_MAX + 1 /* / */ + APPLING_LINK_DATA_MAX + 1 /* NULL */] = {'\0'};
   strcat(link_buf, "pear://");
@@ -299,6 +326,18 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
     return err;
   }
 
+  WCHAR *current_dir = NULL;
+  err = appling__utf8_to_utf16(platform->path, &current_dir);
+  if (err == 0 && current_dir != NULL) {
+    appling__bootstrap_log("launch-direct-cwd", platform->path);
+  } else {
+    appling__bootstrap_log("launch-direct-cwd", "(null)");
+    if (current_dir) {
+      free(current_dir);
+      current_dir = NULL;
+    }
+  }
+
   BOOL success = CreateProcessW(
     application_name,
     command_line,
@@ -307,13 +346,14 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
     FALSE,
     CREATE_NO_WINDOW,
     NULL,
-    NULL,
+    current_dir,
     &si,
     &pi
   );
 
   free(application_name);
   free(command_line);
+  if (current_dir) free(current_dir);
 
   if (!success) {
     DWORD last = GetLastError();
@@ -394,7 +434,7 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
   }
 
 #if defined(APPLING_OS_WIN32)
-  err = appling__launch_direct(platform, app, link);
+  err = appling__launch_direct(platform, app, link, name);
   if (err == 0) {
     return 0;
   }
