@@ -11,11 +11,39 @@
 #include "../include/appling.h"
 
 static void
+appling__bootstrap_log(const char *tag, const char *detail) {
+  const char *log_path = getenv("PEAR_BOOTSTRAP_LOG");
+  if (!log_path || !log_path[0]) return;
+
+  FILE *fp = fopen(log_path, "a");
+  if (!fp) return;
+
+  fprintf(fp, "[%llu] %s: %s\n",
+    (unsigned long long) uv_hrtime(),
+    tag ? tag : "(null)",
+    detail ? detail : ""
+  );
+
+  fclose(fp);
+}
+
+static void
 appling_resolve__realpath(appling_resolve_t *req);
 
 static void
 appling_resolve__on_close(fs_close_t *fs_req, int status) {
   appling_resolve_t *req = (appling_resolve_t *) fs_req->data;
+
+  if (!req) {
+    appling__bootstrap_log("resolve-close", "req-null");
+    return;
+  }
+
+  {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "status=%d", status);
+    appling__bootstrap_log("resolve-close", buf);
+  }
 
   if (req->status < 0) status = req->status;
 
@@ -34,6 +62,11 @@ appling_resolve__on_read(fs_read_t *fs_req, int status, size_t read) {
   int err;
 
   appling_resolve_t *req = (appling_resolve_t *) fs_req->data;
+
+  if (!req) {
+    appling__bootstrap_log("resolve-read", "req-null");
+    return;
+  }
 
   if (status >= 0) {
     compact_state_t state = {
@@ -106,6 +139,11 @@ appling_resolve__on_read(fs_read_t *fs_req, int status, size_t read) {
 
     req->status = 0; // Reset
   } else {
+    {
+      char buf[128];
+      snprintf(buf, sizeof(buf), "status=%d", status);
+      appling__bootstrap_log("resolve-read", buf);
+    }
     req->status = status; // Propagate
   }
 
@@ -119,6 +157,11 @@ static void
 appling_resolve__on_stat(fs_stat_t *fs_req, int status, const uv_stat_t *stat) {
   appling_resolve_t *req = (appling_resolve_t *) fs_req->data;
 
+  if (!req) {
+    appling__bootstrap_log("resolve-stat", "req-null");
+    return;
+  }
+
   if (status >= 0) {
     size_t len = stat->st_size;
 
@@ -126,6 +169,11 @@ appling_resolve__on_stat(fs_stat_t *fs_req, int status, const uv_stat_t *stat) {
 
     fs_read(req->loop, &req->read, req->file, &req->buf, 1, 0, appling_resolve__on_read);
   } else {
+    {
+      char buf[128];
+      snprintf(buf, sizeof(buf), "status=%d", status);
+      appling__bootstrap_log("resolve-stat", buf);
+    }
     req->status = status; // Propagate
 
     fs_close(req->loop, &req->close, req->file, appling_resolve__on_close);
@@ -136,11 +184,29 @@ static void
 appling_resolve__on_open(fs_open_t *fs_req, int status, uv_file file) {
   appling_resolve_t *req = (appling_resolve_t *) fs_req->data;
 
+  if (!req) {
+    appling__bootstrap_log("resolve-open", "req-null");
+    return;
+  }
+
   if (status >= 0) {
     req->file = file;
 
     fs_stat(req->loop, &req->stat, req->file, appling_resolve__on_stat);
   } else {
+    appling_path_t path;
+    size_t path_len = sizeof(appling_path_t);
+    path_join(
+      (const char *[]) {req->platform->path, "..", "..", "checkout", NULL},
+      path,
+      &path_len,
+      path_behavior_system
+    );
+    {
+      char buf[256];
+      snprintf(buf, sizeof(buf), "status=%d path=%s", status, path);
+      appling__bootstrap_log("resolve-open", buf);
+    }
     if (req->cb) req->cb(req, status);
   }
 }
@@ -166,11 +232,32 @@ static void
 appling_resolve__on_realpath(fs_realpath_t *fs_req, int status, const char *path) {
   appling_resolve_t *req = (appling_resolve_t *) fs_req->data;
 
+  if (!req) {
+    appling__bootstrap_log("resolve-realpath", "req-null");
+    return;
+  }
+
   if (status >= 0) {
     strcpy(req->platform->path, path);
 
     appling_resolve__open(req);
   } else {
+    {
+      appling_path_t candidate_path;
+      size_t candidate_len = sizeof(appling_path_t);
+      size_t i = req->candidate;
+      if (appling_platform_candidates[i]) {
+        path_join(
+          (const char *[]) {req->path, appling_platform_candidates[i], NULL},
+          candidate_path,
+          &candidate_len,
+          path_behavior_system
+        );
+        char buf[256];
+        snprintf(buf, sizeof(buf), "status=%d path=%s", status, candidate_path);
+        appling__bootstrap_log("resolve-realpath", buf);
+      }
+    }
     size_t i = ++req->candidate;
 
     if (appling_platform_candidates[i]) appling_resolve__realpath(req);
@@ -191,6 +278,12 @@ appling_resolve__realpath(appling_resolve_t *req) {
     &path_len,
     path_behavior_system
   );
+
+  {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "candidate=%zu path=%s", i, path);
+    appling__bootstrap_log("resolve-candidate", buf);
+  }
 
   log_debug("appling_resolve() accessing platform at %s", path);
 
@@ -244,6 +337,8 @@ appling_resolve(uv_loop_t *loop, appling_resolve_t *req, const char *dir, applin
       path_behavior_system
     );
   }
+
+  appling__bootstrap_log("resolve-root", req->path);
 
   appling_resolve__realpath(req);
 
