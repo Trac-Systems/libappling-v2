@@ -3,7 +3,6 @@
 #include <path.h>
 #include <stdint.h>
 #include <stdlib.h>
-<<<<<<< HEAD
 #include <string.h>
 #include <utf.h>
 #include <stdio.h>
@@ -80,9 +79,6 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
 
   uv_dlclose(&library);
 
-<<<<<<< HEAD
-  return err;
-=======
   if (err < 0) {
     char buf[64];
     snprintf(buf, sizeof(buf), "err=%d", err);
