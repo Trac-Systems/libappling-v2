@@ -504,6 +504,9 @@ appling_launch_v0(const appling_launch_info_t *info) {
     path_behavior_system
   );
 
+  appling__bootstrap_log("launch-entrypoint", "v0");
+  appling__bootstrap_log("launch-runtime", file);
+
   const appling_app_t *app = info->app;
 
   appling_path_t appling;
@@ -516,6 +519,8 @@ appling_launch_v0(const appling_launch_info_t *info) {
   strcpy(appling, app->path);
 #endif
 
+  appling__bootstrap_log("launch-appling", appling);
+
   log_debug("appling_launch() launching application shell %s", appling);
 
   char link[7 /* pear:// */ + APPLING_ID_MAX + 1 /* / */ + APPLING_LINK_DATA_MAX + 1 /* NULL */] = {'\0'};
@@ -527,6 +532,8 @@ appling_launch_v0(const appling_launch_info_t *info) {
     strcat(link, "/");
     strcat(link, info->link->data);
   }
+
+  appling__bootstrap_log("launch-link", link);
 
   log_debug("appling_launch() launching link %s", link);
 
@@ -548,6 +555,16 @@ appling_launch_v0(const appling_launch_info_t *info) {
   argv[i] = NULL;
 
 #if defined(APPLING_OS_WIN32)
+  {
+    char cmd[1024];
+    cmd[0] = '\0';
+    for (size_t j = 0; argv[j] != NULL; j++) {
+      if (j > 0) strncat(cmd, " ", sizeof(cmd) - strlen(cmd) - 1);
+      strncat(cmd, argv[j], sizeof(cmd) - strlen(cmd) - 1);
+    }
+    appling__bootstrap_log("launch-cmd", cmd);
+  }
+
   STARTUPINFOW si;
   ZeroMemory(&si, sizeof(si));
 
@@ -558,11 +575,19 @@ appling_launch_v0(const appling_launch_info_t *info) {
 
   WCHAR *application_name;
   err = appling__utf8_to_utf16(file, &application_name);
-  if (err < 0) return err;
+  if (err < 0) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "utf16 err=%d", err);
+    appling__bootstrap_log("launch-utf16", buf);
+    return err;
+  }
 
   WCHAR *command_line;
   err = appling__argv_to_command_line((const char *const *) argv, &command_line);
   if (err < 0) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "cmdline err=%d", err);
+    appling__bootstrap_log("launch-cmdline", buf);
     free(application_name);
 
     return err;
@@ -584,7 +609,13 @@ appling_launch_v0(const appling_launch_info_t *info) {
   free(application_name);
   free(command_line);
 
-  if (!success) return -1;
+  if (!success) {
+    DWORD last = GetLastError();
+    char buf[128];
+    snprintf(buf, sizeof(buf), "CreateProcessW err=%lu", (unsigned long) last);
+    appling__bootstrap_log("launch-createprocess", buf);
+    return -1;
+  }
 
   WaitForSingleObject(pi.hProcess, INFINITE);
 
