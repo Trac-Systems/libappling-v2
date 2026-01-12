@@ -2,6 +2,7 @@
 #include <path.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "../include/appling.h"
 
@@ -16,6 +17,23 @@
 #endif
 
 #if defined(APPLING_OS_WIN32)
+static void
+appling__bootstrap_log(const char *tag, const char *detail) {
+  const char *log_path = getenv("PEAR_BOOTSTRAP_LOG");
+  if (log_path == NULL || log_path[0] == '\0') return;
+
+  FILE *fp = fopen(log_path, "a");
+  if (fp == NULL) return;
+
+  unsigned long long ts = (unsigned long long) GetTickCount64();
+  fprintf(fp, "[%llu] %s: %s\n",
+    ts,
+    tag ? tag : "event",
+    detail ? detail : ""
+  );
+  fclose(fp);
+}
+
 static inline int32_t
 appling__wtf8_decode1(const char **input) {
   uint32_t code_point;
@@ -288,7 +306,13 @@ appling_ready_v0(const appling_ready_info_t *info) {
   free(application_name);
   free(command_line);
 
-  if (!success) return -1;
+  if (!success) {
+    DWORD last = GetLastError();
+    char buf[128];
+    snprintf(buf, sizeof(buf), "CreateProcessW err=%lu", (unsigned long) last);
+    appling__bootstrap_log("launch-createprocess", buf);
+    return -1;
+  }
 
   WaitForSingleObject(pi.hProcess, INFINITE);
 
@@ -546,7 +570,21 @@ appling_launch_v0(const appling_launch_info_t *info) {
   CloseHandle(pi.hProcess);
   CloseHandle(pi.hThread);
 
-  return success && status == 0 ? 0 : -1;
+  if (!success) {
+    DWORD last = GetLastError();
+    char buf[128];
+    snprintf(buf, sizeof(buf), "GetExitCodeProcess err=%lu", (unsigned long) last);
+    appling__bootstrap_log("launch-exitcode", buf);
+    return -1;
+  }
+
+  if (status != 0) {
+    char buf[128];
+    snprintf(buf, sizeof(buf), "pear-runtime exit=%lu", (unsigned long) status);
+    appling__bootstrap_log("launch-exit", buf);
+  }
+
+  return status == 0 ? 0 : -1;
 #else
   return execv(file, argv);
 #endif
