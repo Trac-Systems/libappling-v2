@@ -244,6 +244,27 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
   strncpy(appling, app->path, sizeof(appling) - 1);
   appling[sizeof(appling) - 1] = '\0';
 
+  int alias_applied = 0;
+  const char *local = getenv("LOCALAPPDATA");
+  if (local && local[0] && name && name[0]) {
+    if (strstr(appling, "\\WindowsApps\\") != NULL ||
+        strstr(appling, "/WindowsApps/") != NULL) {
+      appling__bootstrap_log("launch-direct-app-windowsapps", appling);
+      appling_path_t fallback;
+      snprintf(
+        fallback,
+        sizeof(fallback),
+        "%s\\Microsoft\\WindowsApps\\%s.exe",
+        local,
+        name
+      );
+      strncpy(appling, fallback, sizeof(appling) - 1);
+      appling[sizeof(appling) - 1] = '\0';
+      alias_applied = 1;
+      appling__bootstrap_log("launch-direct-app-alias", appling);
+    }
+  }
+
   {
     uv_fs_t stat_req;
     int rc = uv_fs_stat(uv_default_loop(), &stat_req, appling, NULL);
@@ -251,8 +272,7 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
       char buf[256];
       snprintf(buf, sizeof(buf), "missing(%d) %s", rc, appling);
       appling__bootstrap_log("launch-direct-app-missing", buf);
-      const char *local = getenv("LOCALAPPDATA");
-      if (local && local[0] && name && name[0]) {
+      if (!alias_applied && local && local[0] && name && name[0]) {
         appling_path_t fallback;
         snprintf(
           fallback,
