@@ -225,6 +225,7 @@ appling__argv_to_command_line(const char *const *args, WCHAR **result) {
 static int
 appling__launch_direct(const appling_platform_t *platform, const appling_app_t *app, const appling_link_t *link, const char *name) {
   int err;
+  int have_appling = 0;
 
   if (platform == NULL || app == NULL || link == NULL) {
     appling__bootstrap_log("launch-direct-skip", "missing platform/app/link");
@@ -250,40 +251,41 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
     if (strstr(appling, "\\WindowsApps\\") != NULL ||
         strstr(appling, "/WindowsApps/") != NULL) {
       appling__bootstrap_log("launch-direct-app-windowsapps", appling);
-      appling_path_t fallback;
+      appling_path_t alias_path;
       snprintf(
-        fallback,
-        sizeof(fallback),
+        alias_path,
+        sizeof(alias_path),
         "%s\\Microsoft\\WindowsApps\\%s.exe",
         local,
         name
       );
-      strncpy(appling, fallback, sizeof(appling) - 1);
-      appling[sizeof(appling) - 1] = '\0';
-      alias_applied = 1;
-      appling__bootstrap_log("launch-direct-app-alias", appling);
+
+      uv_fs_t alias_req;
+      int alias_rc = uv_fs_stat(uv_default_loop(), &alias_req, alias_path, NULL);
+      if (alias_rc == 0) {
+        strncpy(appling, alias_path, sizeof(appling) - 1);
+        appling[sizeof(appling) - 1] = '\0';
+        alias_applied = 1;
+        appling__bootstrap_log("launch-direct-app-alias", appling);
+      } else {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "missing(%d) %s", alias_rc, alias_path);
+        appling__bootstrap_log("launch-direct-app-alias-missing", buf);
+      }
+      uv_fs_req_cleanup(&alias_req);
     }
   }
 
   {
     uv_fs_t stat_req;
     int rc = uv_fs_stat(uv_default_loop(), &stat_req, appling, NULL);
+    have_appling = rc == 0;
     if (rc < 0) {
       char buf[256];
       snprintf(buf, sizeof(buf), "missing(%d) %s", rc, appling);
       appling__bootstrap_log("launch-direct-app-missing", buf);
-      if (!alias_applied && local && local[0] && name && name[0]) {
-        appling_path_t fallback;
-        snprintf(
-          fallback,
-          sizeof(fallback),
-          "%s\\Microsoft\\WindowsApps\\%s.exe",
-          local,
-          name
-        );
-        strncpy(appling, fallback, sizeof(appling) - 1);
-        appling[sizeof(appling) - 1] = '\0';
-        appling__bootstrap_log("launch-direct-app-fallback", appling);
+      if (alias_applied) {
+        appling__bootstrap_log("launch-direct-app-fallback", app->path);
       }
     } else {
       appling__bootstrap_log("launch-direct-app", appling);
@@ -299,33 +301,9 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
     strcat(link_buf, link->data);
   }
 
-  char *argv[8];
-  size_t i = 0;
-  argv[i++] = runtime;
-  argv[i++] = "run";
-  argv[i++] = "--trusted";
-  argv[i++] = "--appling";
-  argv[i++] = appling;
-  argv[i++] = "--no-sandbox";
-  argv[i++] = link_buf;
-  argv[i] = NULL;
-
-  {
-    char cmd[1024];
-    cmd[0] = '\0';
-    for (size_t j = 0; argv[j] != NULL; j++) {
-      if (j > 0) strncat(cmd, " ", sizeof(cmd) - strlen(cmd) - 1);
-      strncat(cmd, argv[j], sizeof(cmd) - strlen(cmd) - 1);
-    }
-    appling__bootstrap_log("launch-direct-cmd", cmd);
+  if (!have_appling) {
+    appling__bootstrap_log("launch-direct-skip-appling", "app path missing");
   }
-
-  STARTUPINFOW si;
-  ZeroMemory(&si, sizeof(si));
-  si.cb = sizeof(si);
-
-  PROCESS_INFORMATION pi;
-  ZeroMemory(&pi, sizeof(pi));
 
   WCHAR *application_name;
   err = appling__utf8_to_utf16(runtime, &application_name);
@@ -333,16 +311,6 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
     char buf[128];
     snprintf(buf, sizeof(buf), "utf16 err=%d", err);
     appling__bootstrap_log("launch-direct-utf16", buf);
-    return err;
-  }
-
-  WCHAR *command_line;
-  err = appling__argv_to_command_line((const char *const *) argv, &command_line);
-  if (err < 0) {
-    char buf[128];
-    snprintf(buf, sizeof(buf), "cmdline err=%d", err);
-    appling__bootstrap_log("launch-direct-cmdline", buf);
-    free(application_name);
     return err;
   }
 
@@ -358,54 +326,105 @@ appling__launch_direct(const appling_platform_t *platform, const appling_app_t *
     }
   }
 
-  BOOL success = CreateProcessW(
-    application_name,
-    command_line,
-    NULL,
-    NULL,
-    FALSE,
-    CREATE_NO_WINDOW,
-    NULL,
-    current_dir,
-    &si,
-    &pi
-  );
+  int attempts = have_appling ? 2 : 1;
+  for (int attempt = 0; attempt < attempts; attempt++) {
+    int include_appling = (attempt == 0 && have_appling);
+
+    char *argv[9];
+    size_t i = 0;
+    argv[i++] = runtime;
+    argv[i++] = "run";
+    argv[i++] = "--trusted";
+    if (include_appling) {
+      argv[i++] = "--appling";
+      argv[i++] = appling;
+    }
+    argv[i++] = "--no-sandbox";
+    argv[i++] = link_buf;
+    argv[i] = NULL;
+
+    {
+      char cmd[1024];
+      cmd[0] = '\0';
+      for (size_t j = 0; argv[j] != NULL; j++) {
+        if (j > 0) strncat(cmd, " ", sizeof(cmd) - strlen(cmd) - 1);
+        strncat(cmd, argv[j], sizeof(cmd) - strlen(cmd) - 1);
+      }
+      appling__bootstrap_log("launch-direct-cmd", cmd);
+    }
+
+    WCHAR *command_line;
+    err = appling__argv_to_command_line((const char *const *) argv, &command_line);
+    if (err < 0) {
+      char buf[128];
+      snprintf(buf, sizeof(buf), "cmdline err=%d", err);
+      appling__bootstrap_log("launch-direct-cmdline", buf);
+      free(application_name);
+      if (current_dir) free(current_dir);
+      return err;
+    }
+
+    STARTUPINFOW si;
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof(pi));
+
+    BOOL success = CreateProcessW(
+      application_name,
+      command_line,
+      NULL,
+      NULL,
+      FALSE,
+      CREATE_NO_WINDOW,
+      NULL,
+      current_dir,
+      &si,
+      &pi
+    );
+
+    free(command_line);
+
+    if (!success) {
+      DWORD last = GetLastError();
+      char buf[128];
+      snprintf(buf, sizeof(buf), "CreateProcessW err=%lu", (unsigned long) last);
+      appling__bootstrap_log("launch-direct-createprocess", buf);
+    } else {
+      WaitForSingleObject(pi.hProcess, INFINITE);
+
+      DWORD status;
+      success = GetExitCodeProcess(pi.hProcess, &status);
+
+      CloseHandle(pi.hProcess);
+      CloseHandle(pi.hThread);
+
+      if (!success) {
+        DWORD last = GetLastError();
+        char buf[128];
+        snprintf(buf, sizeof(buf), "GetExitCodeProcess err=%lu", (unsigned long) last);
+        appling__bootstrap_log("launch-direct-exitcode", buf);
+      } else if (status != 0) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "pear-runtime exit=%lu", (unsigned long) status);
+        appling__bootstrap_log("launch-direct-exit", buf);
+      } else {
+        free(application_name);
+        if (current_dir) free(current_dir);
+        return 0;
+      }
+    }
+
+    if (attempt == 0 && have_appling) {
+      appling__bootstrap_log("launch-direct-retry", "without --appling");
+    }
+  }
 
   free(application_name);
-  free(command_line);
   if (current_dir) free(current_dir);
 
-  if (!success) {
-    DWORD last = GetLastError();
-    char buf[128];
-    snprintf(buf, sizeof(buf), "CreateProcessW err=%lu", (unsigned long) last);
-    appling__bootstrap_log("launch-direct-createprocess", buf);
-    return -1;
-  }
-
-  WaitForSingleObject(pi.hProcess, INFINITE);
-
-  DWORD status;
-  success = GetExitCodeProcess(pi.hProcess, &status);
-
-  CloseHandle(pi.hProcess);
-  CloseHandle(pi.hThread);
-
-  if (!success) {
-    DWORD last = GetLastError();
-    char buf[128];
-    snprintf(buf, sizeof(buf), "GetExitCodeProcess err=%lu", (unsigned long) last);
-    appling__bootstrap_log("launch-direct-exitcode", buf);
-    return -1;
-  }
-
-  if (status != 0) {
-    char buf[128];
-    snprintf(buf, sizeof(buf), "pear-runtime exit=%lu", (unsigned long) status);
-    appling__bootstrap_log("launch-direct-exit", buf);
-  }
-
-  return status == 0 ? 0 : -1;
+  return -1;
 }
 #endif
 
@@ -553,3 +572,4 @@ appling_launch(const appling_platform_t *platform, const appling_app_t *app, con
 
   return err;
 }
+
