@@ -31,6 +31,19 @@ appling_platform__resolve_dir(appling_path_t out, size_t *out_len) {
   const char *local = getenv("LOCALAPPDATA");
 
 #ifdef _WIN32
+  const char *appx = getenv("APPX_PACKAGE_FAMILY_NAME");
+  if (appx && appx[0]) {
+    const char *program = getenv("PROGRAMDATA");
+    if (program && program[0]) {
+      if (out && out_len && *out_len > 0) {
+        strncpy(out, program, *out_len - 1);
+        out[*out_len - 1] = '\0';
+        *out_len = strlen(out);
+      }
+      return 0;
+    }
+  }
+
   if (local && local[0] && !appling_platform__is_msix_redirected_local(local)) {
     if (out && out_len && *out_len > 0) {
       strncpy(out, local, *out_len - 1);
