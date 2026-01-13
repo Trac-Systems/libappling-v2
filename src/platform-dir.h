@@ -6,6 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <uv.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <appmodel.h>
+#endif
 
 static inline int
 appling_platform__is_msix_redirected_local(const char *path) {
@@ -26,13 +30,22 @@ appling_platform__is_msix_redirected_local(const char *path) {
 #endif
 }
 
+#ifdef _WIN32
+static inline int
+appling_platform__is_packaged(void) {
+  UINT32 len = 0;
+  LONG rc = GetCurrentPackageFullName(&len, NULL);
+  if (rc == APPMODEL_ERROR_NO_PACKAGE) return 0;
+  return 1;
+}
+#endif
+
 static inline int
 appling_platform__resolve_dir(appling_path_t out, size_t *out_len) {
   const char *local = getenv("LOCALAPPDATA");
 
 #ifdef _WIN32
-  const char *appx = getenv("APPX_PACKAGE_FAMILY_NAME");
-  if (appx && appx[0]) {
+  if (appling_platform__is_packaged()) {
     const char *program = getenv("PROGRAMDATA");
     if (program && program[0]) {
       if (out && out_len && *out_len > 0) {
