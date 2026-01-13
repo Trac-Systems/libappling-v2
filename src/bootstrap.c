@@ -8,6 +8,8 @@
 #include <uv.h>
 
 #include "../include/appling.h"
+
+#include "platform-dir.h"
 #include "bootstrap.bundle.h"
 
 static js_value_t *
@@ -165,7 +167,7 @@ appling_bootstrap(uv_loop_t *loop, js_platform_t *js, appling_bootstrap_t *req, 
     appling_path_t homedir;
     size_t path_len = sizeof(appling_path_t);
 
-    err = uv_os_homedir(homedir, &path_len);
+    err = appling_platform__resolve_dir(homedir, &path_len);
     if (err < 0) return err;
 
     path_len = sizeof(appling_path_t);

@@ -7,6 +7,8 @@
 
 #include "../include/appling.h"
 
+#include "platform-dir.h"
+
 static void
 appling__bootstrap_log(const char *tag, const char *detail) {
   const char *log_path = getenv("PEAR_BOOTSTRAP_LOG");
@@ -160,7 +162,7 @@ appling_lock(uv_loop_t *loop, appling_lock_t *req, const char *dir, appling_lock
     appling_path_t homedir;
     size_t path_len = sizeof(appling_path_t);
 
-    err = uv_os_homedir(homedir, &path_len);
+    err = appling_platform__resolve_dir(homedir, &path_len);
     if (err < 0) return err;
 
     path_len = sizeof(appling_path_t);

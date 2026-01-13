@@ -9,6 +9,8 @@
 
 #include "../include/appling.h"
 
+#include "platform-dir.h"
+
 static void *
 appling_paths__on_alloc(size_t len, void *data) {
   return malloc(len * sizeof(appling_app_t));
@@ -149,7 +151,7 @@ appling_paths(uv_loop_t *loop, appling_paths_t *req, const char *dir, appling_pa
     appling_path_t homedir;
     size_t homedir_len = sizeof(appling_path_t);
 
-    err = uv_os_homedir(homedir, &homedir_len);
+    err = appling_platform__resolve_dir(homedir, &homedir_len);
     if (err < 0) return err;
 
     path_join(
