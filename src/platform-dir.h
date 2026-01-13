@@ -8,7 +8,6 @@
 #include <uv.h>
 #ifdef _WIN32
 #include <windows.h>
-#include <appmodel.h>
 #endif
 
 static inline int
@@ -24,28 +23,27 @@ appling_platform__is_msix_redirected_local(const char *path) {
   lower[len] = '\0';
 
   return strstr(lower, "\\packages\\") != NULL ||
-         strstr(lower, "\\localcache\\") != NULL;
+         strstr(lower, "\\localcache\\local") != NULL;
 #else
   return 0;
 #endif
 }
 
-#ifdef _WIN32
-static inline int
-appling_platform__is_packaged(void) {
-  UINT32 len = 0;
-  LONG rc = GetCurrentPackageFullName(&len, NULL);
-  if (rc == APPMODEL_ERROR_NO_PACKAGE) return 0;
-  return 1;
-}
-#endif
 
 static inline int
 appling_platform__resolve_dir(appling_path_t out, size_t *out_len) {
   const char *local = getenv("LOCALAPPDATA");
-
 #ifdef _WIN32
-  if (appling_platform__is_packaged()) {
+  int msix_redirected = local && local[0] && appling_platform__is_msix_redirected_local(local);
+  if (local && local[0] && !msix_redirected) {
+    if (out && out_len && *out_len > 0) {
+      strncpy(out, local, *out_len - 1);
+      out[*out_len - 1] = '\0';
+      *out_len = strlen(out);
+    }
+    return 0;
+  }
+  if (msix_redirected) {
     const char *program = getenv("PROGRAMDATA");
     if (program && program[0]) {
       if (out && out_len && *out_len > 0) {
@@ -56,16 +54,6 @@ appling_platform__resolve_dir(appling_path_t out, size_t *out_len) {
       return 0;
     }
   }
-
-  if (local && local[0] && !appling_platform__is_msix_redirected_local(local)) {
-    if (out && out_len && *out_len > 0) {
-      strncpy(out, local, *out_len - 1);
-      out[*out_len - 1] = '\0';
-      *out_len = strlen(out);
-    }
-    return 0;
-  }
-
   const char *profile = getenv("USERPROFILE");
   if (profile && profile[0]) {
     size_t len = *out_len;
@@ -78,18 +66,10 @@ appling_platform__resolve_dir(appling_path_t out, size_t *out_len) {
     if (err == 0 && out_len) *out_len = len;
     return err;
   }
-
-  if (local && local[0]) {
-    if (out && out_len && *out_len > 0) {
-      strncpy(out, local, *out_len - 1);
-      out[*out_len - 1] = '\0';
-      *out_len = strlen(out);
-    }
-    return 0;
-  }
 #endif
-
   return uv_os_homedir(out, out_len);
 }
 
 #endif
+
+

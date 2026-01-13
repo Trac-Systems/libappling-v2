@@ -133,9 +133,9 @@ target_link_libraries(
     path
 )
 
-link_bare_modules(appling_bootstrap)
+link_bare_modules(appling_bootstrap WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}")
 
-if(WIN32)
+if(WIN32 AND TARGET rocksdb_facebook)
   target_compile_options(
     rocksdb_facebook
     PRIVATE
@@ -220,3 +220,6 @@ if(PROJECT_IS_TOP_LEVEL)
 
   add_subdirectory(test)
 endif()
+
+
+
